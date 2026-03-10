@@ -134,7 +134,7 @@ const supabase = createClient(URL, KEY)
 
 
 // ID пользователя
-const MY_ID = "YOUR_USER_ID"
+const MY_ID = "2a2dfab0-9e73-4807-aea6-6e513503ac48"
 
 
 
@@ -143,7 +143,7 @@ window.changeStatus = async (text) => {
 
   const { error } = await supabase
     .from('profiles')
-    .update({ status: text, color: color })
+    .update({ status: text })
     .eq('id', MY_ID)
 
   if (error) {
