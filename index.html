@@ -57,38 +57,39 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 const SUPABASE_URL = "https://osowzswtuwhwfmhmbhqk.supabase.co"
 const SUPABASE_KEY = "sb_publishable_Hu2E-PEjBS9FpPu152iI1w_yu4StNh-"
-
-// ⚠️ ЗАМЕНИ на точный URL твоего сайта
 const SITE_URL = "https://gleb184.github.io/cloud/"
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 let MY_ID = null
 
 async function checkAuth() {
-  // 🔑 Сначала пробуем получить сессию из URL (после редиректа от Google)
-  const { data: { session }, error } = await supabase.auth.getSession()
+  // 1. Читаем токен из hash (после редиректа Google)
+  if (window.location.hash.includes('access_token')) {
+    await supabase.auth.getSession() // Supabase сам парсит hash
+    history.replaceState(null, '', window.location.pathname)
+  }
 
+  // 2. Проверяем ошибку в URL
+  const params = new URLSearchParams(window.location.search)
+  if (params.get('error')) {
+    document.getElementById('myInfo').innerText =
+      "Ошибка входа: " + decodeURIComponent(params.get('error_description') || '')
+    history.replaceState(null, '', window.location.pathname)
+    return
+  }
+
+  // 3. Проверяем сессию
+  const { data: { session } } = await supabase.auth.getSession()
   if (session) {
     MY_ID = session.user.id
     fetchGroup()
     return
   }
 
-  // Если в URL есть error от Supabase — показываем его
-  const params = new URLSearchParams(window.location.search)
-  if (params.get('error')) {
-    document.getElementById('myInfo').innerText =
-      "Ошибка входа: " + params.get('error_description')
-    console.error('Auth error:', params.toString())
-    return
-  }
-
-  // Не залогинен — редиректим на Google
+  // 4. Нет сессии — редирект на Google
   await supabase.auth.signInWithOAuth({
     provider: 'google',
-    options: {
-      redirectTo: SITE_URL  // ← это главное исправление
-    }
+    options: { redirectTo: SITE_URL }
   })
 }
 
@@ -115,7 +116,7 @@ async function fetchGroup() {
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
-    .order('full_name', { ascending: true })
+    .order('email', { ascending: true }) // email есть всегда
   if (error) return console.error(error)
 
   const list = document.getElementById('groupList')
@@ -135,6 +136,20 @@ async function fetchGroup() {
       "Вы зашли как: " + (me.full_name || me.email)
   }
 }
+
+// Слушаем изменения сессии (на случай если токен придёт асинхронно)
+supabase.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_IN' && session && !MY_ID) {
+    MY_ID = session.user.id
+    history.replaceState(null, '', window.location.pathname)
+    fetchGroup()
+  }
+  if (event === 'SIGNED_OUT') {
+    MY_ID = null
+    document.getElementById('myInfo').innerText = 'Загрузка...'
+    document.getElementById('groupList').innerHTML = ''
+  }
+})
 
 checkAuth()
 setInterval(fetchGroup, 5000)
