@@ -136,40 +136,32 @@ let MY_ID = null
 // 🔐 Проверка авторизации
 async function checkAuth() {
 
-  const { data: { session } } = await supabase.auth.getSession()
+  // 👇 ждем, пока Supabase восстановит сессию
+  const { data } = await supabase.auth.getSession()
 
-  if (!session) {
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: 'https://gleb184.github.io/cloud'
-      }
-    })
-    return
+  if (!data.session) {
+
+    // небольшая задержка (критично для GitHub Pages)
+    await new Promise(r => setTimeout(r, 500))
+
+    const { data: retry } = await supabase.auth.getSession()
+
+    if (!retry.session) {
+      await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: 'https://gleb184.github.io/cloud'
+        }
+      })
+      return
+    }
+
+    MY_ID = retry.session.user.id
+  } else {
+    MY_ID = data.session.user.id
   }
-
-  // ✅ теперь точно есть сессия
-  MY_ID = session.user.id
 
   fetchGroup()
-}
-
-// 🔄 смена статуса
-window.changeStatus = async (text, color) => {
-
-  if (!MY_ID) return
-
-  const { error } = await supabase
-    .from('profiles')
-    .update({ status: text, color: color })
-    .eq('id', MY_ID)
-
-  if (error) {
-    alert("Ошибка! Проверь RLS политики.")
-    console.error(error)
-  } else {
-    fetchGroup()
-  }
 }
 
 
