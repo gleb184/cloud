@@ -139,7 +139,7 @@ async function checkAuth() {
 
   try {
 
-    // ❗ FIX: используем window.URL (убирает конфликт)
+    // ❗ FIX: используем window.URL
     const urlObj = new window.URL(window.location.href)
     const hasCode = urlObj.searchParams.get('code')
 
@@ -220,4 +220,3 @@ setInterval(() => {
 </script>
 </body>
 </html>
-``` исправь этот код
