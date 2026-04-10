@@ -135,28 +135,24 @@ let MY_ID = null
 
 // 🔐 Проверка авторизации
 async function checkAuth() {
-   await supabase.auth.exchangeCodeForSession(window.location.href) 
+
   const { data: { session } } = await supabase.auth.getSession()
 
-  // ❌ если не залогинен → отправляем на Google
   if (!session) {
-
     await supabase.auth.signInWithOAuth({
-  provider: 'google',
-  options: {
-    redirectTo: 'https://gleb184.github.io/cloud'
-  }
-})
-
+      provider: 'google',
+      options: {
+        redirectTo: 'https://gleb184.github.io/cloud'
+      }
+    })
     return
   }
 
-  // ✅ если есть сессия
+  // ✅ теперь точно есть сессия
   MY_ID = session.user.id
 
   fetchGroup()
 }
-
 
 // 🔄 смена статуса
 window.changeStatus = async (text, color) => {
