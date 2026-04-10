@@ -31,10 +31,31 @@ button{ border:none; border-radius:4px; padding:8px; font-size:13px; cursor:poin
 .logout{ background:#e74c3c; color:white; width:100%; margin-top:10px; }
 .user-item{ display:flex; align-items:center; gap:8px; margin-top:6px; }
 .status-dot{ width:8px; height:8px; border-radius:50%; }
+.online-dot{ width:8px; height:8px; border-radius:50%; background:#2eaf4a; display:inline-block; margin-right:4px; }
+.study-time{
+    font-size:22px;
+    font-weight:bold;
+    color:#2eaf4a;
+    text-align:center;
+    margin:8px 0 4px;
+}
+.study-label{
+    font-size:12px;
+    color:#888;
+    text-align:center;
+}
+.online-item{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    padding:4px 0;
+    font-size:13px;
+}
 </style>
 </head>
 <body>
 <div class="container">
+
   <div class="card">
     <h3>Мой профиль</h3>
     <div class="subtitle" id="myInfo">Загрузка...</div>
@@ -46,10 +67,23 @@ button{ border:none; border-radius:4px; padding:8px; font-size:13px; cursor:poin
     </div>
     <button class="logout" onclick="logout()">Выйти</button>
   </div>
+
+  <div class="card">
+    <h3>🎓 Моё время учёбы</h3>
+    <div class="study-time" id="studyTime">0ч 0м 0с</div>
+    <div class="study-label">суммарно в статусе «Учусь»</div>
+  </div>
+
+  <div class="card">
+    <h3>🟢 Сейчас онлайн</h3>
+    <div id="onlineList"><small style="color:#aaa">Загрузка...</small></div>
+  </div>
+
   <div class="card">
     <h3>Монитор группы</h3>
     <div id="groupList"></div>
   </div>
+
 </div>
 
 <script type="module">
@@ -58,18 +92,21 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const SUPABASE_URL = "https://osowzswtuwhwfmhmbhqk.supabase.co"
 const SUPABASE_KEY = "sb_publishable_Hu2E-PEjBS9FpPu152iI1w_yu4StNh-"
 const SITE_URL = "https://gleb184.github.io/cloud/"
+const ONLINE_THRESHOLD = 2 * 60 * 1000 // 2 минуты — считается онлайн
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 let MY_ID = null
+let studyInterval = null      // таймер пока статус "Учусь"
+let studySeconds = 0          // накопленные секунды из БД
+let isStudying = false
 
+// ─── Авторизация ───────────────────────────────────────────
 async function checkAuth() {
-  // 1. Читаем токен из hash (после редиректа Google)
   if (window.location.hash.includes('access_token')) {
-    await supabase.auth.getSession() // Supabase сам парсит hash
+    await supabase.auth.getSession()
     history.replaceState(null, '', window.location.pathname)
   }
 
-  // 2. Проверяем ошибку в URL
   const params = new URLSearchParams(window.location.search)
   if (params.get('error')) {
     document.getElementById('myInfo').innerText =
@@ -78,81 +115,181 @@ async function checkAuth() {
     return
   }
 
-  // 3. Проверяем сессию
   const { data: { session } } = await supabase.auth.getSession()
   if (session) {
     MY_ID = session.user.id
+    await pingOnline()   // сразу пишем что онлайн
     fetchGroup()
     return
   }
 
-  // 4. Нет сессии — редирект на Google
   await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: { redirectTo: SITE_URL }
   })
 }
 
+// ─── Пинг онлайна ──────────────────────────────────────────
+async function pingOnline() {
+  if (!MY_ID) return
+  await supabase
+    .from('profiles')
+    .update({ last_seen: new Date().toISOString() })
+    .eq('id', MY_ID)
+}
+
+// ─── Смена статуса ─────────────────────────────────────────
 window.changeStatus = async (text, color) => {
   if (!MY_ID) return
+
+  // Если уходим из "Учусь" — сохраняем накопленное время
+  if (isStudying) {
+    await saveStudySeconds()
+    stopStudyTimer()
+  }
+
   const { error } = await supabase
     .from('profiles')
     .update({ status: text, color: color })
     .eq('id', MY_ID)
+
   if (error) {
     alert("Ошибка! Проверь RLS политики.")
     console.error(error)
-  } else {
-    fetchGroup()
+    return
   }
+
+  // Если начали "Учусь" — запускаем таймер
+  if (text === 'Учусь') {
+    startStudyTimer()
+  }
+
+  fetchGroup()
 }
 
-window.logout = async () => {
-  await supabase.auth.signOut()
-  location.reload()
+// ─── Таймер учёбы ──────────────────────────────────────────
+function startStudyTimer() {
+  isStudying = true
+  studyInterval = setInterval(async () => {
+    studySeconds++
+    renderStudyTime(studySeconds)
+    // каждые 30 секунд сохраняем в БД
+    if (studySeconds % 30 === 0) {
+      await saveStudySeconds()
+    }
+  }, 1000)
 }
 
+function stopStudyTimer() {
+  isStudying = false
+  clearInterval(studyInterval)
+  studyInterval = null
+}
+
+async function saveStudySeconds() {
+  await supabase
+    .from('profiles')
+    .update({ study_seconds: studySeconds })
+    .eq('id', MY_ID)
+}
+
+function renderStudyTime(seconds) {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = seconds % 60
+  document.getElementById('studyTime').innerText =
+    `${h}ч ${m}м ${s}с`
+}
+
+// ─── Загрузка группы ───────────────────────────────────────
 async function fetchGroup() {
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
-    .order('email', { ascending: true }) // email есть всегда
+    .order('username', { ascending: true })
   if (error) return console.error(error)
 
+  const now = Date.now()
+
+  // Онлайн-список
+  const onlineUsers = data.filter(u => {
+    if (!u.last_seen) return false
+    return (now - new Date(u.last_seen).getTime()) < ONLINE_THRESHOLD
+  })
+
+  document.getElementById('onlineList').innerHTML = onlineUsers.length
+    ? onlineUsers.map(u => `
+        <div class="online-item">
+          <span class="online-dot"></span>
+          <span>${u.username || u.email}</span>
+        </div>
+      `).join('')
+    : '<small style="color:#aaa">Никого нет онлайн</small>'
+
+  // Группа
   const list = document.getElementById('groupList')
   list.innerHTML = data.map(user => `
     <div class="user-item">
       <div class="status-dot" style="background:${user.color || '#ccc'}"></div>
       <div style="flex-grow:1">
-        <b>${user.full_name || user.email}</b><br>
+        <b>${user.username || user.email}</b><br>
         <small style="color:#666">${user.status || 'Статус не задан'}</small>
       </div>
     </div>
   `).join('')
 
+  // Мой профиль
   const me = data.find(u => u.id === MY_ID)
   if (me) {
     document.getElementById('myInfo').innerText =
-      "Вы зашли как: " + (me.full_name || me.email)
+      "Вы зашли как: " + (me.username || me.email)
+
+    // Загружаем время учёбы из БД (только если таймер не тикает)
+    if (!isStudying) {
+      studySeconds = me.study_seconds || 0
+      renderStudyTime(studySeconds)
+    }
+
+    // Если статус уже "Учусь" при загрузке — запускаем таймер
+    if (me.status === 'Учусь' && !isStudying) {
+      startStudyTimer()
+    }
   }
 }
 
-// Слушаем изменения сессии (на случай если токен придёт асинхронно)
+window.logout = async () => {
+  if (isStudying) {
+    await saveStudySeconds()
+    stopStudyTimer()
+  }
+  await supabase.auth.signOut()
+  location.reload()
+}
+
 supabase.auth.onAuthStateChange((event, session) => {
   if (event === 'SIGNED_IN' && session && !MY_ID) {
     MY_ID = session.user.id
     history.replaceState(null, '', window.location.pathname)
+    pingOnline()
     fetchGroup()
   }
   if (event === 'SIGNED_OUT') {
     MY_ID = null
+    stopStudyTimer()
     document.getElementById('myInfo').innerText = 'Загрузка...'
     document.getElementById('groupList').innerHTML = ''
+    document.getElementById('onlineList').innerHTML = ''
   }
 })
 
 checkAuth()
-setInterval(fetchGroup, 5000)
+
+// Обновляем каждые 30 секунд + пингуем онлайн
+setInterval(() => {
+  fetchGroup()
+  pingOnline()
+}, 30000)
+
 </script>
 </body>
 </html>
