@@ -32,28 +32,75 @@ button{ border:none; border-radius:4px; padding:8px; font-size:13px; cursor:poin
 .user-item{ display:flex; align-items:center; gap:8px; margin-top:6px; }
 .status-dot{ width:8px; height:8px; border-radius:50%; }
 .online-dot{ width:8px; height:8px; border-radius:50%; background:#2eaf4a; display:inline-block; margin-right:4px; }
-.study-time{
-    font-size:22px;
-    font-weight:bold;
-    color:#2eaf4a;
-    text-align:center;
-    margin:8px 0 4px;
-}
-.study-label{
+.study-time{ font-size:22px; font-weight:bold; color:#2eaf4a; text-align:center; margin:8px 0 4px; }
+.study-label{ font-size:12px; color:#888; text-align:center; }
+.online-item{ display:flex; align-items:center; gap:6px; padding:4px 0; font-size:13px; }
+
+/* Достижения */
+.badge{
+    display:inline-flex;
+    align-items:center;
+    gap:4px;
+    background:#f0f0f0;
+    border-radius:20px;
+    padding:4px 10px;
     font-size:12px;
-    color:#888;
-    text-align:center;
+    margin:3px 2px;
+    cursor:pointer;
+    position:relative;
 }
-.online-item{
+.badge.earned{ background:#fff3cd; border:1px solid #ffc107; }
+.badge-locked{ opacity:0.4; }
+.badges-wrap{ display:flex; flex-wrap:wrap; margin-top:6px; }
+
+/* Рейтинг */
+.rank-item{
     display:flex;
     align-items:center;
-    gap:6px;
-    padding:4px 0;
+    gap:8px;
+    padding:6px 0;
+    border-bottom:1px solid #f0f0f0;
     font-size:13px;
 }
+.rank-item:last-child{ border-bottom:none; }
+.rank-num{
+    width:22px;
+    height:22px;
+    border-radius:50%;
+    background:#eee;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:11px;
+    font-weight:bold;
+    flex-shrink:0;
+}
+.rank-num.gold{ background:#ffd700; }
+.rank-num.silver{ background:#c0c0c0; }
+.rank-num.bronze{ background:#cd7f32; color:white; }
+.rank-score{ margin-left:auto; color:#888; font-size:12px; }
+
+/* Тост уведомление */
+.toast{
+    position:fixed;
+    bottom:20px;
+    left:50%;
+    transform:translateX(-50%);
+    background:#333;
+    color:white;
+    padding:10px 20px;
+    border-radius:20px;
+    font-size:13px;
+    opacity:0;
+    transition:opacity 0.3s;
+    z-index:999;
+    white-space:nowrap;
+}
+.toast.show{ opacity:1; }
 </style>
 </head>
 <body>
+<div class="toast" id="toast"></div>
 <div class="container">
 
   <div class="card">
@@ -69,9 +116,20 @@ button{ border:none; border-radius:4px; padding:8px; font-size:13px; cursor:poin
   </div>
 
   <div class="card">
+    <h3>🏅 Мои достижения</h3>
+    <div class="badges-wrap" id="myBadges"></div>
+  </div>
+
+  <div class="card">
     <h3>🎓 Моё время учёбы</h3>
     <div class="study-time" id="studyTime">0ч 0м 0с</div>
-    <div class="study-label">суммарно в статусе «Учусь»</div>
+    <div class="study-label" id="studyLabel">текущая сессия</div>
+    <div style="margin-top:8px;text-align:center;font-size:12px;color:#aaa" id="totalStudy"></div>
+  </div>
+
+  <div class="card">
+    <h3>🏆 Топ студентов</h3>
+    <div id="rankList"></div>
   </div>
 
   <div class="card">
@@ -92,13 +150,99 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const SUPABASE_URL = "https://osowzswtuwhwfmhmbhqk.supabase.co"
 const SUPABASE_KEY = "sb_publishable_Hu2E-PEjBS9FpPu152iI1w_yu4StNh-"
 const SITE_URL = "https://gleb184.github.io/cloud/"
-const ONLINE_THRESHOLD = 2 * 60 * 1000 // 2 минуты — считается онлайн
+const ONLINE_THRESHOLD = 2 * 60 * 1000
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 let MY_ID = null
-let studyInterval = null      // таймер пока статус "Учусь"
-let studySeconds = 0          // накопленные секунды из БД
+let studyInterval = null
+let studySeconds = 0
+let sessionStudySeconds = 0  // секунды именно этой сессии (для марафонца)
 let isStudying = false
+let myProfile = null
+
+// ─── Все достижения ────────────────────────────────────────
+const ALL_ACHIEVEMENTS = [
+  { id: 'early_bird',  emoji: '🌅', name: 'Ранняя пташка',  desc: 'Зайти на сайт до 8:00' },
+  { id: 'marathon',    emoji: '🏃', name: 'Марафонец',       desc: 'Учиться более 2 часов за одну сессию' },
+  { id: 'persistent', emoji: '💪', name: 'Упорный',          desc: 'Суммарно 10 часов учёбы' },
+  { id: 'legend',     emoji: '👑', name: 'Легенда',          desc: 'Суммарно 50 часов учёбы' },
+  { id: 'first_step', emoji: '👣', name: 'Первый шаг',       desc: 'Первый раз поставить статус «Учусь»' },
+  { id: 'regular',    emoji: '📅', name: 'Постоянный',       desc: 'Зайти на сайт 5 дней подряд' },
+]
+
+// ─── Показать тост ─────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast')
+  t.innerText = msg
+  t.classList.add('show')
+  setTimeout(() => t.classList.remove('show'), 3000)
+}
+
+// ─── Выдать достижение ─────────────────────────────────────
+async function grantAchievement(id) {
+  if (!myProfile) return
+  const current = myProfile.achievements || []
+  if (current.includes(id)) return  // уже есть
+
+  const updated = [...current, id]
+  myProfile.achievements = updated
+
+  await supabase
+    .from('profiles')
+    .update({ achievements: updated })
+    .eq('id', MY_ID)
+
+  const ach = ALL_ACHIEVEMENTS.find(a => a.id === id)
+  if (ach) showToast(`🏅 Новое достижение: ${ach.emoji} ${ach.name}!`)
+  renderMyBadges(updated)
+}
+
+// ─── Проверка достижений ───────────────────────────────────
+async function checkAchievements() {
+  if (!myProfile) return
+
+  const earned = myProfile.achievements || []
+  const total = myProfile.total_study_seconds || 0
+
+  // Ранняя пташка
+  const hour = new Date().getHours()
+  if (hour < 8 && !earned.includes('early_bird')) {
+    await grantAchievement('early_bird')
+  }
+
+  // Первый шаг
+  if (isStudying && !earned.includes('first_step')) {
+    await grantAchievement('first_step')
+  }
+
+  // Марафонец — 2 часа за одну сессию
+  if (sessionStudySeconds >= 7200 && !earned.includes('marathon')) {
+    await grantAchievement('marathon')
+  }
+
+  // Упорный — 10 часов суммарно
+  if (total >= 36000 && !earned.includes('persistent')) {
+    await grantAchievement('persistent')
+  }
+
+  // Легенда — 50 часов суммарно
+  if (total >= 180000 && !earned.includes('legend')) {
+    await grantAchievement('legend')
+  }
+}
+
+// ─── Отрисовка значков ─────────────────────────────────────
+function renderMyBadges(earned) {
+  const wrap = document.getElementById('myBadges')
+  wrap.innerHTML = ALL_ACHIEVEMENTS.map(a => {
+    const has = earned.includes(a.id)
+    return `
+      <div class="badge ${has ? 'earned' : 'badge-locked'}" title="${a.desc}">
+        ${a.emoji} ${a.name}
+      </div>
+    `
+  }).join('')
+}
 
 // ─── Авторизация ───────────────────────────────────────────
 async function checkAuth() {
@@ -118,8 +262,9 @@ async function checkAuth() {
   const { data: { session } } = await supabase.auth.getSession()
   if (session) {
     MY_ID = session.user.id
-    await pingOnline()   // сразу пишем что онлайн
-    fetchGroup()
+    await pingOnline()
+    await fetchGroup()
+    await checkAchievements()
     return
   }
 
@@ -142,7 +287,6 @@ async function pingOnline() {
 window.changeStatus = async (text, color) => {
   if (!MY_ID) return
 
-  // Если уходим из "Учусь" — сохраняем накопленное время
   if (isStudying) {
     await saveStudySeconds()
     stopStudyTimer()
@@ -159,9 +303,10 @@ window.changeStatus = async (text, color) => {
     return
   }
 
-  // Если начали "Учусь" — запускаем таймер
   if (text === 'Учусь') {
+    sessionStudySeconds = 0
     startStudyTimer()
+    await checkAchievements() // first_step
   }
 
   fetchGroup()
@@ -172,10 +317,13 @@ function startStudyTimer() {
   isStudying = true
   studyInterval = setInterval(async () => {
     studySeconds++
+    sessionStudySeconds++
     renderStudyTime(studySeconds)
-    // каждые 30 секунд сохраняем в БД
+
+    // Каждые 30 секунд сохраняем
     if (studySeconds % 30 === 0) {
       await saveStudySeconds()
+      await checkAchievements()
     }
   }, 1000)
 }
@@ -187,21 +335,34 @@ function stopStudyTimer() {
 }
 
 async function saveStudySeconds() {
+  if (!MY_ID) return
+  const total = (myProfile?.total_study_seconds || 0) + sessionStudySeconds
+  if (myProfile) myProfile.total_study_seconds = total
+
   await supabase
     .from('profiles')
-    .update({ study_seconds: studySeconds })
+    .update({
+      study_seconds: studySeconds,
+      total_study_seconds: total
+    })
     .eq('id', MY_ID)
+
+  document.getElementById('totalStudy').innerText =
+    'Всего: ' + formatTime(total)
 }
 
 function renderStudyTime(seconds) {
+  document.getElementById('studyTime').innerText = formatTime(seconds)
+}
+
+function formatTime(seconds) {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
   const s = seconds % 60
-  document.getElementById('studyTime').innerText =
-    `${h}ч ${m}м ${s}с`
+  return `${h}ч ${m}м ${s}с`
 }
 
-// ─── Загрузка группы ───────────────────────────────────────
+// ─── Загрузка группы и рейтинга ────────────────────────────
 async function fetchGroup() {
   const { data, error } = await supabase
     .from('profiles')
@@ -210,13 +371,12 @@ async function fetchGroup() {
   if (error) return console.error(error)
 
   const now = Date.now()
+  myProfile = data.find(u => u.id === MY_ID) || myProfile
 
-  // Онлайн-список
-  const onlineUsers = data.filter(u => {
-    if (!u.last_seen) return false
-    return (now - new Date(u.last_seen).getTime()) < ONLINE_THRESHOLD
-  })
-
+  // Онлайн
+  const onlineUsers = data.filter(u =>
+    u.last_seen && (now - new Date(u.last_seen).getTime()) < ONLINE_THRESHOLD
+  )
   document.getElementById('onlineList').innerHTML = onlineUsers.length
     ? onlineUsers.map(u => `
         <div class="online-item">
@@ -226,14 +386,38 @@ async function fetchGroup() {
       `).join('')
     : '<small style="color:#aaa">Никого нет онлайн</small>'
 
+  // Рейтинг — сортируем по total_study_seconds
+  const ranked = [...data].sort((a, b) =>
+    (b.total_study_seconds || 0) - (a.total_study_seconds || 0)
+  ).slice(0, 10)
+
+  const medalClass = ['gold', 'silver', 'bronze']
+  document.getElementById('rankList').innerHTML = ranked.map((u, i) => {
+    const achCount = (u.achievements || []).length
+    const totalSec = u.total_study_seconds || 0
+    return `
+      <div class="rank-item">
+        <div class="rank-num ${medalClass[i] || ''}">${i + 1}</div>
+        <div>
+          <b>${u.username || u.email}</b><br>
+          <small style="color:#aaa">${achCount} достижений</small>
+        </div>
+        <div class="rank-score">${formatTime(totalSec)}</div>
+      </div>
+    `
+  }).join('')
+
   // Группа
-  const list = document.getElementById('groupList')
-  list.innerHTML = data.map(user => `
+  document.getElementById('groupList').innerHTML = data.map(u => `
     <div class="user-item">
-      <div class="status-dot" style="background:${user.color || '#ccc'}"></div>
+      <div class="status-dot" style="background:${u.color || '#ccc'}"></div>
       <div style="flex-grow:1">
-        <b>${user.username || user.email}</b><br>
-        <small style="color:#666">${user.status || 'Статус не задан'}</small>
+        <b>${u.username || u.email}</b>
+        ${(u.achievements || []).slice(0, 3).map(id => {
+          const a = ALL_ACHIEVEMENTS.find(x => x.id === id)
+          return a ? `<span title="${a.name}">${a.emoji}</span>` : ''
+        }).join('')}<br>
+        <small style="color:#666">${u.status || 'Статус не задан'}</small>
       </div>
     </div>
   `).join('')
@@ -244,13 +428,16 @@ async function fetchGroup() {
     document.getElementById('myInfo').innerText =
       "Вы зашли как: " + (me.username || me.email)
 
-    // Загружаем время учёбы из БД (только если таймер не тикает)
+    renderMyBadges(me.achievements || [])
+
+    document.getElementById('totalStudy').innerText =
+      'Всего: ' + formatTime(me.total_study_seconds || 0)
+
     if (!isStudying) {
       studySeconds = me.study_seconds || 0
       renderStudyTime(studySeconds)
     }
 
-    // Если статус уже "Учусь" при загрузке — запускаем таймер
     if (me.status === 'Учусь' && !isStudying) {
       startStudyTimer()
     }
@@ -283,13 +470,7 @@ supabase.auth.onAuthStateChange((event, session) => {
 })
 
 checkAuth()
-
-// Обновляем каждые 30 секунд + пингуем онлайн
-setInterval(() => {
-  fetchGroup()
-  pingOnline()
-}, 30000)
-
+setInterval(() => { fetchGroup(); pingOnline() }, 30000)
 </script>
 </body>
 </html>
