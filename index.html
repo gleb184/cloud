@@ -3,9 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>Монитор статусов</title>
-
 <style>
-
 body{
     font-family: Arial, sans-serif;
     background:#f2f2f2;
@@ -14,11 +12,7 @@ body{
     display:flex;
     justify-content:center;
 }
-
-.container{
-    width:340px;
-}
-
+.container{ width:340px; }
 .card{
     background:white;
     border-radius:10px;
@@ -26,145 +20,84 @@ body{
     margin-bottom:16px;
     box-shadow:0 1px 4px rgba(0,0,0,0.08);
 }
-
-h3{
-    margin:0 0 10px 0;
-    font-size:16px;
-}
-
-.subtitle{
-    font-size:13px;
-    color:#555;
-    margin-bottom:12px;
-}
-
-.buttons{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:8px;
-}
-
-button{
-    border:none;
-    border-radius:4px;
-    padding:8px;
-    font-size:13px;
-    cursor:pointer;
-}
-
+h3{ margin:0 0 10px 0; font-size:16px; }
+.subtitle{ font-size:13px; color:#555; margin-bottom:12px; }
+.buttons{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+button{ border:none; border-radius:4px; padding:8px; font-size:13px; cursor:pointer; }
 .green{ background:#2eaf4a; color:white; }
 .orange{ background:#f0ad00; color:black; }
 .blue{ background:#17a2b8; color:white; }
 .gray{ background:#777; color:white; }
-
-.user-item{
-    display:flex;
-    align-items:center;
-    gap:8px;
-    margin-top:6px;
-}
-
-.status-dot{
-    width:8px;
-    height:8px;
-    border-radius:50%;
-}
-
+.logout{ background:#e74c3c; color:white; width:100%; margin-top:10px; }
+.user-item{ display:flex; align-items:center; gap:8px; margin-top:6px; }
+.status-dot{ width:8px; height:8px; border-radius:50%; }
 </style>
 </head>
-
-
 <body>
-
 <div class="container">
-
-<div class="card">
-
-<h3>Мой профиль</h3>
-
-<div class="subtitle" id="myInfo">
-Вы зашли как: ...
+  <div class="card">
+    <h3>Мой профиль</h3>
+    <div class="subtitle" id="myInfo">Загрузка...</div>
+    <div class="buttons">
+      <button class="green" onclick="changeStatus('Учусь','#2eaf4a')">🎓 Учусь</button>
+      <button class="orange" onclick="changeStatus('Кофе','#f0ad00')">☕ Кофе</button>
+      <button class="blue" onclick="changeStatus('В игре','#17a2b8')">🎮 В игре</button>
+      <button class="gray" onclick="changeStatus('Дома','#777')">🏠 Дома</button>
+    </div>
+    <button class="logout" onclick="logout()">Выйти</button>
+  </div>
+  <div class="card">
+    <h3>Монитор группы</h3>
+    <div id="groupList"></div>
+  </div>
 </div>
-
-<div class="buttons">
-
-<button class="green" onclick="changeStatus('Учусь','#2eaf4a')">
-🎓 Учусь
-</button>
-
-<button class="orange" onclick="changeStatus('Кофе','#f0ad00')">
-☕ Кофе
-</button>
-
-<button class="blue" onclick="changeStatus('В игре','#17a2b8')">
-🎮 В игре
-</button>
-
-<button class="gray" onclick="changeStatus('Дома','#777')">
-🏠 Дома
-</button>
-
-</div>
-
-</div>
-
-
-<div class="card">
-
-<h3>Монитор группы</h3>
-
-<div id="groupList"></div>
-
-</div>
-
-</div>
-
-
 
 <script type="module">
-
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
 
-const URL = "https://osowzswtuwhwfmhmbhqk.supabase.co"
-const KEY = "sb_publishable_Hu2E-PEjBS9FpPu152iI1w_yu4StNh-"
+const SUPABASE_URL = "https://osowzswtuwhwfmhmbhqk.supabase.co"
+const SUPABASE_KEY = "sb_publishable_Hu2E-PEjBS9FpPu152iI1w_yu4StNh-"
 
-const supabase = createClient(URL, KEY)
+// ⚠️ ЗАМЕНИ на точный URL твоего сайта
+const SITE_URL = "https://gleb184.github.io"
 
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 let MY_ID = null
 
-
-// 🔐 Проверка авторизации
 async function checkAuth() {
+  // 🔑 Сначала пробуем получить сессию из URL (после редиректа от Google)
+  const { data: { session }, error } = await supabase.auth.getSession()
 
-  const { data: { session } } = await supabase.auth.getSession()
-
-  // ❌ если не залогинен → отправляем на Google
-  if (!session) {
-
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-    })
-
+  if (session) {
+    MY_ID = session.user.id
+    fetchGroup()
     return
   }
 
-  // ✅ если есть сессия
-  MY_ID = session.user.id
+  // Если в URL есть error от Supabase — показываем его
+  const params = new URLSearchParams(window.location.search)
+  if (params.get('error')) {
+    document.getElementById('myInfo').innerText =
+      "Ошибка входа: " + params.get('error_description')
+    console.error('Auth error:', params.toString())
+    return
+  }
 
-  fetchGroup()
+  // Не залогинен — редиректим на Google
+  await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: SITE_URL  // ← это главное исправление
+    }
+  })
 }
 
-
-// 🔄 смена статуса
 window.changeStatus = async (text, color) => {
-
   if (!MY_ID) return
-
   const { error } = await supabase
     .from('profiles')
     .update({ status: text, color: color })
     .eq('id', MY_ID)
-
   if (error) {
     alert("Ошибка! Проверь RLS политики.")
     console.error(error)
@@ -173,52 +106,38 @@ window.changeStatus = async (text, color) => {
   }
 }
 
+window.logout = async () => {
+  await supabase.auth.signOut()
+  location.reload()
+}
 
-// 📥 загрузка группы
-async function fetchGroup(){
-
+async function fetchGroup() {
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
     .order('username', { ascending: true })
-
-  if(error) return console.error(error)
+  if (error) return console.error(error)
 
   const list = document.getElementById('groupList')
-
   list.innerHTML = data.map(user => `
-  
-  <div class="user-item">
-
-    <div class="status-dot" style="background:${user.color || '#ccc'}"></div>
-
-    <div style="flex-grow:1">
-      <b>${user.username || user.email}</b><br>
-      <small style="color:#666">
-        ${user.status || 'Статус не задан'}
-      </small>
+    <div class="user-item">
+      <div class="status-dot" style="background:${user.color || '#ccc'}"></div>
+      <div style="flex-grow:1">
+        <b>${user.username || user.email}</b><br>
+        <small style="color:#666">${user.status || 'Статус не задан'}</small>
+      </div>
     </div>
-
-  </div>
-  
   `).join('')
 
-
   const me = data.find(u => u.id === MY_ID)
-
-  if(me){
+  if (me) {
     document.getElementById('myInfo').innerText =
       "Вы зашли как: " + (me.username || me.email)
   }
-
 }
 
-
-// 🚀 запуск
 checkAuth()
-
 setInterval(fetchGroup, 5000)
-
 </script>
 </body>
 </html>
