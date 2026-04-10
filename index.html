@@ -135,7 +135,7 @@ let MY_ID = null
 
 // 🔐 Проверка авторизации
 async function checkAuth() {
-
+   await supabase.auth.exchangeCodeForSession(window.location.href) 
   const { data: { session } } = await supabase.auth.getSession()
 
   // ❌ если не залогинен → отправляем на Google
