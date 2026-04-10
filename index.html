@@ -115,7 +115,7 @@ async function fetchGroup() {
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
-    .order('username', { ascending: true })
+    .order('full_name', { ascending: true })
   if (error) return console.error(error)
 
   const list = document.getElementById('groupList')
