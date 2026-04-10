@@ -2,10 +2,11 @@
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
 
-const URL = "https://osowzswtuwhwfmhmbhqk.supabase.co"
-const KEY = "sb_publishable_Hu2E-PEjBS9FpPu152iI1w_yu4StNh-"
+// ✅ не называем URL (чтобы не ломать браузерный URL)
+const SUPABASE_URL = "https://osowzswtuwhwfmhmbhqk.supabase.co"
+const SUPABASE_KEY = "sb_publishable_Hu2E-PEjBS9FpPu152iI1w_yu4StNh-"
 
-const supabase = createClient(URL, KEY)
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 let MY_ID = null
 
@@ -13,13 +14,19 @@ let MY_ID = null
 // 🔐 AUTH
 async function checkAuth() {
 
-  // 🔥 ВАЖНО: обрабатываем OAuth callback
-  const url = new URL(window.location.href)
-  const hasCode = url.searchParams.get('code')
+  try {
 
-  if (hasCode) {
-    await supabase.auth.exchangeCodeForSession(window.location.href)
-    window.history.replaceState({}, document.title, "/cloud/")
+    const url = new URL(window.location.href)
+    const hasCode = url.searchParams.get('code')
+
+    // 🔥 обработка OAuth callback
+    if (hasCode) {
+      await supabase.auth.exchangeCodeForSession(window.location.href)
+      window.history.replaceState({}, document.title, "/cloud/")
+    }
+
+  } catch (e) {
+    console.warn("OAuth callback skip:", e)
   }
 
   const { data: { session } } = await supabase.auth.getSession()
@@ -35,6 +42,7 @@ async function checkAuth() {
   }
 
   MY_ID = session.user.id
+
   fetchGroup()
 }
 
@@ -45,26 +53,28 @@ async function fetchGroup(){
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
-    .order('username', { ascending: true })
 
-  if(error) return console.error(error)
+  if(error) {
+    console.error("DB error:", error)
+    return
+  }
 
   const list = document.getElementById('groupList')
 
   list.innerHTML = data.map(user => `
   
-  <div class="user-item">
+    <div class="user-item">
 
-    <div class="status-dot" style="background:${user.color || '#ccc'}"></div>
+      <div class="status-dot" style="background:${user.color || '#ccc'}"></div>
 
-    <div style="flex-grow:1">
-      <b>${user.username || user.email}</b><br>
-      <small style="color:#666">
-        ${user.status || 'Статус не задан'}
-      </small>
+      <div style="flex-grow:1">
+        <b>${user.username || user.email || 'No name'}</b><br>
+        <small style="color:#666">
+          ${user.status || 'Статус не задан'}
+        </small>
+      </div>
+
     </div>
-
-  </div>
   
   `).join('')
 
@@ -80,6 +90,9 @@ async function fetchGroup(){
 
 // 🚀 запуск
 checkAuth()
-setInterval(fetchGroup, 5000)
+
+setInterval(() => {
+  if (MY_ID) fetchGroup()
+}, 5000)
 
 </script>
