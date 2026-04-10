@@ -125,40 +125,56 @@ button{
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
 
-
-
 const URL = "https://osowzswtuwhwfmhmbhqk.supabase.co"
 const KEY = "sb_publishable_Hu2E-PEjBS9FpPu152iI1w_yu4StNh-"
 
 const supabase = createClient(URL, KEY)
 
-
-// ID пользователя
-const MY_ID = "2a2dfab0-9e73-4807-aea6-6e513503ac48"
+let MY_ID = null
 
 
+// 🔐 Проверка авторизации
+async function checkAuth() {
 
-// смена статуса
-window.changeStatus = async (text) => {
+  const { data: { session } } = await supabase.auth.getSession()
+
+  // ❌ если не залогинен → отправляем на Google
+  if (!session) {
+
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+    })
+
+    return
+  }
+
+  // ✅ если есть сессия
+  MY_ID = session.user.id
+
+  fetchGroup()
+}
+
+
+// 🔄 смена статуса
+window.changeStatus = async (text, color) => {
+
+  if (!MY_ID) return
 
   const { error } = await supabase
     .from('profiles')
-    .update({ status: text })
+    .update({ status: text, color: color })
     .eq('id', MY_ID)
 
   if (error) {
     alert("Ошибка! Проверь RLS политики.")
     console.error(error)
-  }
-  else{
+  } else {
     fetchGroup()
   }
-
 }
 
 
-
-// загрузка группы
+// 📥 загрузка группы
 async function fetchGroup(){
 
   const { data, error } = await supabase
@@ -177,7 +193,7 @@ async function fetchGroup(){
     <div class="status-dot" style="background:${user.color || '#ccc'}"></div>
 
     <div style="flex-grow:1">
-      <b>${user.username}</b><br>
+      <b>${user.username || user.email}</b><br>
       <small style="color:#666">
         ${user.status || 'Статус не задан'}
       </small>
@@ -192,13 +208,14 @@ async function fetchGroup(){
 
   if(me){
     document.getElementById('myInfo').innerText =
-      "Вы зашли как: " + me.username
+      "Вы зашли как: " + (me.username || me.email)
   }
 
 }
 
 
-fetchGroup()
+// 🚀 запуск
+checkAuth()
 
 setInterval(fetchGroup, 5000)
 
