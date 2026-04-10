@@ -125,7 +125,7 @@ button{
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
 
-// ✅ не называем URL (чтобы не ломать браузерный URL)
+// ✅ Supabase config
 const SUPABASE_URL = "https://osowzswtuwhwfmhmbhqk.supabase.co"
 const SUPABASE_KEY = "sb_publishable_Hu2E-PEjBS9FpPu152iI1w_yu4StNh-"
 
@@ -139,17 +139,17 @@ async function checkAuth() {
 
   try {
 
-    const url = new URL(window.location.href)
-    const hasCode = url.searchParams.get('code')
+    // ❗ FIX: используем window.URL (убирает конфликт)
+    const urlObj = new window.URL(window.location.href)
+    const hasCode = urlObj.searchParams.get('code')
 
-    // 🔥 обработка OAuth callback
     if (hasCode) {
       await supabase.auth.exchangeCodeForSession(window.location.href)
       window.history.replaceState({}, document.title, "/cloud/")
     }
 
   } catch (e) {
-    console.warn("OAuth callback skip:", e)
+    console.warn("OAuth skip:", e)
   }
 
   const { data: { session } } = await supabase.auth.getSession()
@@ -165,26 +165,25 @@ async function checkAuth() {
   }
 
   MY_ID = session.user.id
-
   fetchGroup()
 }
 
 
-// 📥 загрузка группы
-async function fetchGroup(){
+// 📥 LOAD GROUP
+async function fetchGroup() {
 
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
 
-  if(error) {
+  if (error) {
     console.error("DB error:", error)
     return
   }
 
   const list = document.getElementById('groupList')
 
-  list.innerHTML = data.map(user => `
+  list.innerHTML = (data || []).map(user => `
   
     <div class="user-item">
 
@@ -202,16 +201,16 @@ async function fetchGroup(){
   `).join('')
 
 
-  const me = data.find(u => u.id === MY_ID)
+  const me = (data || []).find(u => u.id === MY_ID)
 
-  if(me){
+  if (me) {
     document.getElementById('myInfo').innerText =
       "Вы зашли как: " + (me.username || me.email)
   }
 }
 
 
-// 🚀 запуск
+// 🚀 START
 checkAuth()
 
 setInterval(() => {
