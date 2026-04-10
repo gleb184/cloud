@@ -123,7 +123,7 @@ async function fetchGroup() {
     <div class="user-item">
       <div class="status-dot" style="background:${user.color || '#ccc'}"></div>
       <div style="flex-grow:1">
-        <b>${user.username || user.email}</b><br>
+        <b>${user.full_name || user.email}</b><br>
         <small style="color:#666">${user.status || 'Статус не задан'}</small>
       </div>
     </div>
@@ -132,7 +132,7 @@ async function fetchGroup() {
   const me = data.find(u => u.id === MY_ID)
   if (me) {
     document.getElementById('myInfo').innerText =
-      "Вы зашли как: " + (me.username || me.email)
+      "Вы зашли как: " + (me.full_name || me.email)
   }
 }
 
