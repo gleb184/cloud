@@ -125,97 +125,99 @@ button{
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
 
-// ✅ Supabase config
-const SUPABASE_URL = "https://osowzswtuwhwfmhmbhqk.supabase.co"
-const SUPABASE_KEY = "sb_publishable_Hu2E-PEjBS9FpPu152iI1w_yu4StNh-"
+const URL = "https://osowzswtuwhwfmhmbhqk.supabase.co"
+const KEY = "sb_publishable_Hu2E-PEjBS9FpPu152iI1w_yu4StNh-"
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
+const supabase = createClient(URL, KEY)
 
 let MY_ID = null
 
 
-// 🔐 AUTH
+// 🔐 Проверка авторизации
 async function checkAuth() {
-
-  try {
-
-    // ❗ FIX: используем window.URL
-    const urlObj = new window.URL(window.location.href)
-    const hasCode = urlObj.searchParams.get('code')
-
-    if (hasCode) {
-      await supabase.auth.exchangeCodeForSession(window.location.href)
-      window.history.replaceState({}, document.title, "/cloud/")
-    }
-
-  } catch (e) {
-    console.warn("OAuth skip:", e)
-  }
 
   const { data: { session } } = await supabase.auth.getSession()
 
+  // ❌ если не залогинен → отправляем на Google
   if (!session) {
+
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: 'https://gleb184.github.io/cloud'
-      }
     })
+
     return
   }
 
+  // ✅ если есть сессия
   MY_ID = session.user.id
+
   fetchGroup()
 }
 
 
-// 📥 LOAD GROUP
-async function fetchGroup() {
+// 🔄 смена статуса
+window.changeStatus = async (text, color) => {
 
-  const { data, error } = await supabase
+  if (!MY_ID) return
+
+  const { error } = await supabase
     .from('profiles')
-    .select('*')
+    .update({ status: text, color: color })
+    .eq('id', MY_ID)
 
   if (error) {
-    console.error("DB error:", error)
-    return
-  }
-
-  const list = document.getElementById('groupList')
-
-  list.innerHTML = (data || []).map(user => `
-  
-    <div class="user-item">
-
-      <div class="status-dot" style="background:${user.color || '#ccc'}"></div>
-
-      <div style="flex-grow:1">
-        <b>${user.username || user.email || 'No name'}</b><br>
-        <small style="color:#666">
-          ${user.status || 'Статус не задан'}
-        </small>
-      </div>
-
-    </div>
-  
-  `).join('')
-
-
-  const me = (data || []).find(u => u.id === MY_ID)
-
-  if (me) {
-    document.getElementById('myInfo').innerText =
-      "Вы зашли как: " + (me.username || me.email)
+    alert("Ошибка! Проверь RLS политики.")
+    console.error(error)
+  } else {
+    fetchGroup()
   }
 }
 
 
-// 🚀 START
+// 📥 загрузка группы
+async function fetchGroup(){
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .order('username', { ascending: true })
+
+  if(error) return console.error(error)
+
+  const list = document.getElementById('groupList')
+
+  list.innerHTML = data.map(user => `
+  
+  <div class="user-item">
+
+    <div class="status-dot" style="background:${user.color || '#ccc'}"></div>
+
+    <div style="flex-grow:1">
+      <b>${user.username || user.email}</b><br>
+      <small style="color:#666">
+        ${user.status || 'Статус не задан'}
+      </small>
+    </div>
+
+  </div>
+  
+  `).join('')
+
+
+  const me = data.find(u => u.id === MY_ID)
+
+  if(me){
+    document.getElementById('myInfo').innerText =
+      "Вы зашли как: " + (me.username || me.email)
+  }
+
+}
+
+
+// 🚀 запуск
 checkAuth()
 
-setInterval(() => {
-  if (MY_ID) fetchGroup()
-}, 5000)
+setInterval(fetchGroup, 5000)
 
 </script>
 </body>
